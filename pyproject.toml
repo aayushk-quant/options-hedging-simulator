@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "options-hedging-simulator"
+version = "0.1.0"
+description = "Options hedging and P&L simulator with GARCH volatility paths"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "yfinance",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
