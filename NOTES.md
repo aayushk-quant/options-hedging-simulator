@@ -79,3 +79,36 @@
   confirming the risk-neutral martingale property holds. Visual check of
   individual paths shows realistic price behaviour with visibly different
   volatility regimes across paths.
+
+  ## Hedging module (hedging/delta_hedge.py)
+- `DeltaHedger(option_contract, price_paths)`, with `run_sim()` and
+  `get_hedging_error()`. Same input pattern as `paths.py`: `S0`, `r`, and
+  `seed` all redundant (`price_paths[0]=S0`, `r=option_contract.r`,
+  randomness already consumed by GARCH).
+- Implements a discrete self-financing delta-hedge replication. At each
+  step, hold `delta[t]` shares (computed via `BlackScholes` using
+  `option_contract.sigma`, the fixed 20% assumption, not the true GARCH
+  vol), with the remainder in a cash account earning `r`.
+- `replace(option_contract, S=price_paths[t], T=T_remaining)` builds a
+  per-timestep contract for the `BlackScholes` delta calculation, with
+  `T_remaining = option_contract.T - t*dt`.
+- `cash[0] = V0 - delta[0]*S0`, where `V0` is the option premium at
+  `t=0`. Recursive update for `t=1..n_steps-1`:
+  `cash[t] = cash[t-1]*exp(r*dt) - (delta[t]-delta[t-1])*price_paths[t]`.
+- At `t=n_steps` (expiry), `delta[n_steps]=delta[n_steps-1]` (no new BS
+  computation, since `T_remaining=0` breaks the formula). With this, the
+  same `cash` formula collapses to pure growth (`delta` difference is
+  zero), so no separate cash formula is needed for expiry.
+- `get_hedging_error()`: payoff via `np.maximum(price_paths[-1]-K, 0)`
+  (call) or `np.maximum(K-price_paths[-1], 0)` (put). Hedging error
+  = `(cash[n_steps] + delta[n_steps]*price_paths[n_steps]) - payoff`,
+  one value per simulation.
+- Validated with `K=S0=100, T=0.25, r=0.05, sigma=0.20` (V0≈4.615,
+  matching the earlier pricing module check). Result: mean hedging error
+  ≈0.264 (~6% of V0), std≈0.935 (~20% of V0), strongly asymmetric:
+  max ≈2.96 but min ≈-11.19 (over 2x V0). The long left tail corresponds
+  to paths that pass through GARCH high-volatility clusters, where the
+  fixed-sigma delta under-reacts to actual price moves, producing large
+  losses on those specific paths. This asymmetry is the direct result of
+  the sigma mismatch (fixed assumption vs realized GARCH vol) the project
+  was designed to surface.
