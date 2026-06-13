@@ -7,6 +7,7 @@ class DeltaHedger:
     def __init__(self, option_contract: OptionContract, price_paths):
         self.option_contract = option_contract
         self.price_paths = price_paths
+
     def run_sim(self):
         r = self.option_contract.r
         n_steps = self.price_paths.shape[0] - 1
@@ -29,6 +30,7 @@ class DeltaHedger:
         self.delta = delta
         self.n_steps = n_steps
         self.dt = dt
+        
     def get_hedging_error(self):
         if not hasattr(self, 'cash'):
             raise AttributeError('To get hedging error run simulation first')
