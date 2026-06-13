@@ -112,3 +112,33 @@
   losses on those specific paths. This asymmetry is the direct result of
   the sigma mismatch (fixed assumption vs realized GARCH vol) the project
   was designed to surface.
+
+  ## Analytics module (analytics/pnl.py)
+- `pnl_stats(hedging_error, alpha=0.05)` returns a labeled `pd.Series`:
+  `Mean`, `Median`, `Standard Deviation`, `Skewness`, `Minimum`, `Maximum`,
+  `Range`, `Lower Quartile`, `Upper Quartile`, `Interquartile Range`,
+  `Value at Risk`, `Conditional VaR`.
+- `alpha` is the tail probability (default 0.05 = "95% VaR/CVaR"
+  convention). `percentile_threshold = np.percentile(hedging_error,
+  alpha*100)` is the raw (signed, negative) tail value; `VaR =
+  -percentile_threshold` flips it to a positive "loss" number. `CVaR`
+  uses `percentile_threshold` (not `VaR`) for the boolean mask
+  (`hedging_error <= percentile_threshold`), then takes the mean of that
+  tail and negates it. Keeping the raw signed threshold separate from the
+  negated "loss" value avoids a sign error in the mask.
+- `skewness` via `scipy.stats.skew`, included since the hedging-error
+  distribution's asymmetry is the project's central finding.
+- `plot_pnl_distribution(hedging_error, summary)` is a separate function
+  from `pnl_stats` (pure data computation vs visualization), taking the
+  already-computed `summary` to annotate `VaR`/`CVaR` lines rather than
+  recomputing them. Plots a histogram with vertical lines at zero error,
+  `-summary['Value at Risk']`, and `-summary['Conditional VaR']`
+  (negated back to hedging-error sign convention for the x-axis).
+- Validated on the `K=S0=100, T=0.25, r=0.05, sigma=0.20` case: `Mean
+  ≈0.264`, `Median ≈0.337` (median > mean, consistent with left skew),
+  `Skewness ≈-1.38` (strongly negative, confirming the long left tail
+  numerically), `VaR ≈1.31`, `CVaR ≈2.25`. The CVaR/VaR ratio (~1.7x)
+  quantifies the tail severity visible in the histogram: beyond the 5th
+  percentile, average outcomes are considerably worse than the percentile
+  threshold itself, driven by extreme paths (min ≈-11.19) passing through
+  GARCH high-volatility clusters.
