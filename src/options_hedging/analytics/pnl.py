@@ -48,7 +48,7 @@ def pnl_stats(hedging_error, alpha: float = 0.05):
             'Conditional VaR'
         ])
     return summary
-def plot_pnl_distribtion(hedging_error, summary):
+def plot_pnl_distribution(hedging_error, summary):
     plt.figure(figsize=(10, 6))
     plt.hist(hedging_error, bins=50, color='steelblue', edgecolor='black', alpha=0.7)
 
