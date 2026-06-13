@@ -23,7 +23,7 @@ class Garch:
         variance = np.zeros((self.n_steps + 1, self.n_simulations))
         vol_zero= np.sqrt(self.omega / (1 - self.alpha - self.beta))
         ret_zero = self.mu
-        prev_eps_sq = 0
+        prev_eps_sq = vol_zero ** 2
         prev_sigma_sq = vol_zero ** 2
         returns[0] = ret_zero
         variance[0] = vol_zero ** 2

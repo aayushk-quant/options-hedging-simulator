@@ -33,24 +33,28 @@
 - Validation: `alpha+beta < 1` (stationarity), `omega > 0`,
   `alpha/beta >= 0` (ensures `sigma_t^2 >= 0` always),
   `n_steps/n_simulations > 0`.
-- Baseline parameters chosen for ~20% annualized vol:
-  `omega=3e-6, alpha=0.07, beta=0.91, mu=0`
-  (`alpha+beta=0.98`, realistic persistence per literature ranges)
+- Baseline parameters: `omega=3.175e-6, alpha=0.07, beta=0.91, mu=0`.
+  `omega` chosen so long-run annualized vol equals exactly 20%
+  (`daily_variance = 0.20^2/252`, `omega = daily_variance*(1-alpha-beta)`),
+  matching the hedger's fixed `sigma=0.20` assumption. This isolates the
+  effect of GARCH vol clustering on hedging error, without contamination
+  from a systematic vol-level mismatch between assumed and true long-run vol.
 - Initialization: `sigma_0^2 = omega/(1-alpha-beta)` (long-run variance),
-  `eps_0 = 0`. Output arrays shaped `(n_steps+1, n_simulations)`; row 0
-  is this initialization, rows `1..n_steps` are the simulated path.
-  Mirrors the `(n_simulations, n_steps+1)` convention from
-  `MonteCarlo._simulate_paths` in Project 1 (axes swapped to match the
-  "loop over time" pattern here).
+  `prev_eps_sq = long_run_variance` (not zero). Setting `eps_0^2 = 0`
+  causes `variance[1] = omega + beta*LRV = 0.93*LRV` (only 93% of
+  long-run variance), creating a transient downward bias over the
+  simulation. Setting `prev_eps_sq = LRV` instead starts both inputs
+  to the recursion at their stationary values, removing this bias.
+  Output arrays shaped `(n_steps+1, n_simulations)`; row 0 is this
+  initialization, rows `1..n_steps` are the simulated path.
 - `variance` array stores `sigma_t^2` (variance), not `sigma_t` (vol).
   `np.sqrt()` applied where vol itself is needed.
-- Validated: `variance[0]` matches expected long-run variance, no
-  negative variances, mean/std of returns consistent with target vol,
-  and visual check of `sqrt(variance)` over time shows clear volatility
-  clustering (sustained periods above/below long-run level). Confirms
-  the recursion behaves as expected.
+- Validated: `variance[0]` matches expected long-run variance, no negative
+  variances, std of returns `≈0.01225` (matching `0.20/sqrt(252)` target),
+  visual check of `sqrt(variance)` over time shows clear volatility
+  clustering.
 
-  ## Simulation module (simulation/paths.py)
+## Simulation module (simulation/paths.py)
 - `simulate_price_paths(option_contract, S0, returns, variance)` converts
   GARCH output into price paths.
 - `n_steps = returns.shape[0] - 1`, and `dt = option_contract.T / n_steps`.
@@ -75,12 +79,12 @@
   than `rtol=5e-2`, since `n_steps` and `T` are set independently and
   nothing else enforces `dt ≈ 1/252`.
 - Validated: `price_paths[0]` exactly equals `S0` for all paths; mean of
-  `S_T` closely matches `S0 * exp(r*T)` (within ~0.1% for 10,000 paths),
-  confirming the risk-neutral martingale property holds. Visual check of
-  individual paths shows realistic price behaviour with visibly different
-  volatility regimes across paths.
+  `S_T ≈101.161` vs `S0*exp(r*T) ≈101.258` (within ~0.1% for 10,000
+  paths), confirming the risk-neutral martingale property holds. Visual
+  check of individual paths shows realistic price behaviour with visibly
+  different volatility regimes across paths.
 
-  ## Hedging module (hedging/delta_hedge.py)
+## Hedging module (hedging/delta_hedge.py)
 - `DeltaHedger(option_contract, price_paths)`, with `run_sim()` and
   `get_hedging_error()`. Same input pattern as `paths.py`: `S0`, `r`, and
   `seed` all redundant (`price_paths[0]=S0`, `r=option_contract.r`,
@@ -103,17 +107,18 @@
   (call) or `np.maximum(K-price_paths[-1], 0)` (put). Hedging error
   = `(cash[n_steps] + delta[n_steps]*price_paths[n_steps]) - payoff`,
   one value per simulation.
-- Validated with `K=S0=100, T=0.25, r=0.05, sigma=0.20` (V0≈4.615,
-  matching the earlier pricing module check). Result: mean hedging error
-  ≈0.264 (~6% of V0), std≈0.935 (~20% of V0), strongly asymmetric:
-  max ≈2.96 but min ≈-11.19 (over 2x V0). The long left tail corresponds
-  to paths that pass through GARCH high-volatility clusters, where the
-  fixed-sigma delta under-reacts to actual price moves, producing large
-  losses on those specific paths. This asymmetry is the direct result of
-  the sigma mismatch (fixed assumption vs realized GARCH vol) the project
-  was designed to surface.
+- Validated with `K=S0=100, T=0.25, r=0.05, sigma=0.20, omega=3.175e-6`
+  (V0≈4.615, matching the earlier pricing module check). Result: mean
+  hedging error ≈0.079 (near-zero, as expected when long-run GARCH vol
+  matches the hedger's fixed assumption exactly), std≈0.990, strongly
+  asymmetric: max≈2.88 but min≈-12.44. The long left tail corresponds
+  to paths passing through GARCH high-volatility clusters, where the
+  fixed-sigma delta under-reacts to actual price moves. With the vol-level
+  mismatch removed (omega calibrated to 20% long-run vol), the near-zero
+  mean confirms the asymmetry is attributable purely to GARCH clustering,
+  not systematic vol mispricing.
 
-  ## Analytics module (analytics/pnl.py)
+## Analytics module (analytics/pnl.py)
 - `pnl_stats(hedging_error, alpha=0.05)` returns a labeled `pd.Series`:
   `Mean`, `Median`, `Standard Deviation`, `Skewness`, `Minimum`, `Maximum`,
   `Range`, `Lower Quartile`, `Upper Quartile`, `Interquartile Range`,
@@ -134,11 +139,11 @@
   recomputing them. Plots a histogram with vertical lines at zero error,
   `-summary['Value at Risk']`, and `-summary['Conditional VaR']`
   (negated back to hedging-error sign convention for the x-axis).
-- Validated on the `K=S0=100, T=0.25, r=0.05, sigma=0.20` case: `Mean
-  ≈0.264`, `Median ≈0.337` (median > mean, consistent with left skew),
-  `Skewness ≈-1.38` (strongly negative, confirming the long left tail
-  numerically), `VaR ≈1.31`, `CVaR ≈2.25`. The CVaR/VaR ratio (~1.7x)
-  quantifies the tail severity visible in the histogram: beyond the 5th
-  percentile, average outcomes are considerably worse than the percentile
-  threshold itself, driven by extreme paths (min ≈-11.19) passing through
-  GARCH high-volatility clusters.
+- Validated: `Mean≈0.079` (near-zero), `Median≈0.183` (median > mean,
+  confirming left skew), `Skewness≈-1.56` (strongly negative),
+  `VaR≈1.61`, `CVaR≈2.65`. CVaR/VaR ratio (~1.64x) confirms substantial
+  tail severity beyond the 95th percentile threshold. The cleaner
+  near-zero mean (vs earlier runs with omega=3e-6) sharpens the
+  project's core finding: even with a correctly-calibrated average vol
+  assumption, GARCH clustering alone generates significant left-skewed
+  hedging risk.
