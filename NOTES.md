@@ -49,3 +49,33 @@
   and visual check of `sqrt(variance)` over time shows clear volatility
   clustering (sustained periods above/below long-run level). Confirms
   the recursion behaves as expected.
+
+  ## Simulation module (simulation/paths.py)
+- `simulate_price_paths(option_contract, S0, returns, variance)` converts
+  GARCH output into price paths.
+- `n_steps = returns.shape[0] - 1`, and `dt = option_contract.T / n_steps`.
+  `n_steps` is chosen when constructing `Garch` to match `T` (e.g.
+  `T=0.25` to `n_steps=63`), so `dt ≈ 1/252` and total simulated time
+  equals `T` exactly.
+- `r` comes from `option_contract.r` (no separate parameter needed).
+  No `seed` parameter either: GARCH already consumed the seeded RNG when
+  generating `returns`/`variance`, so there's no new randomness here.
+- Drift derivation: GARCH `variance[t]` is daily variance, so
+  `sigma_annual^2 * dt = variance[t]` when `dt = 1/252`. Log-return
+  formula: `log_return_t = r*dt - variance[t]/2 + returns[t]`, computed
+  for `t=1..n_steps` via `variance[1:]`/`returns[1:]` (row 0 is GARCH's
+  initialization, not a real step, so excluded).
+- Price path: `price_paths[0] = S0` (exact, for every simulation), and
+  `price_paths[1:] = S0 * exp(cumsum(log_returns, axis=0))`. Output shape
+  `(n_steps+1, n_simulations)`, matching the GARCH output convention.
+- Stacking note: used `np.vstack` (not `np.hstack` as in Project 1's
+  `MonteCarlo._simulate_paths`), because the axis convention here is
+  `(time, simulations)` rather than `(simulations, time)`.
+- Added a runtime `warnings.warn()` if `dt` deviates from `1/252` by more
+  than `rtol=5e-2`, since `n_steps` and `T` are set independently and
+  nothing else enforces `dt ≈ 1/252`.
+- Validated: `price_paths[0]` exactly equals `S0` for all paths; mean of
+  `S_T` closely matches `S0 * exp(r*T)` (within ~0.1% for 10,000 paths),
+  confirming the risk-neutral martingale property holds. Visual check of
+  individual paths shows realistic price behaviour with visibly different
+  volatility regimes across paths.
